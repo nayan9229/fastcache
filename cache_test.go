@@ -131,7 +131,7 @@ func TestMemoryLimit(t *testing.T) {
 	for batch := 0; batch < 10; batch++ { // 40 batches of 50 = 2000 total
 		for i := 0; i < batchSize; i++ {
 			key := fmt.Sprintf("large_key_%d_%d", batch, i)
-			cache.Set(key, largeValue)
+			_ = cache.Set(key, largeValue)
 		}
 
 		// Small delay every few batches to allow eviction to work
@@ -189,7 +189,7 @@ func TestSimpleEviction(t *testing.T) {
 
 	for i := 0; i < numEntries; i++ {
 		key := fmt.Sprintf("test_key_%d", i)
-		cache.Set(key, value)
+		_ = cache.Set(key, value)
 
 		// Check every few entries
 		if i%5 == 0 && i > 0 {
@@ -228,7 +228,7 @@ func TestStats(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		key := fmt.Sprintf("stats_key_%d", i)
 		value := fmt.Sprintf("stats_value_%d", i)
-		cache.Set(key, value)
+		_ = cache.Set(key, value)
 	}
 
 	// Read some data (hits)
@@ -330,7 +330,7 @@ func TestLRUEviction(t *testing.T) {
 	for i := 0; i < initialEntries; i++ {
 		key := fmt.Sprintf("lru_key_%d", i)
 		value := make([]byte, entrySize)
-		cache.Set(key, value)
+		_ = cache.Set(key, value)
 	}
 
 	// Access first 5 keys multiple times to make them very recently used
@@ -350,7 +350,7 @@ func TestLRUEviction(t *testing.T) {
 	for i := initialEntries; i < initialEntries+additionalEntries; i++ {
 		key := fmt.Sprintf("lru_key_%d", i)
 		value := make([]byte, entrySize)
-		cache.Set(key, value)
+		_ = cache.Set(key, value)
 
 		// Small delay to allow eviction to work
 		if i%10 == 0 {
@@ -401,7 +401,7 @@ func TestCleanupExpiredEntries(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		key := fmt.Sprintf("cleanup_key_%d", i)
 		value := fmt.Sprintf("cleanup_value_%d", i)
-		cache.Set(key, value, 100*time.Millisecond)
+		_ = cache.Set(key, value, 100*time.Millisecond)
 	}
 
 	// Wait for cleanup to run
@@ -428,7 +428,7 @@ func TestClear(t *testing.T) {
 	// Add some data
 	for i := 0; i < 100; i++ {
 		key := fmt.Sprintf("clear_key_%d", i)
-		cache.Set(key, fmt.Sprintf("value_%d", i))
+		_ = cache.Set(key, fmt.Sprintf("value_%d", i))
 	}
 
 	stats := cache.GetStats()
@@ -553,7 +553,7 @@ func TestHighLoad(t *testing.T) {
 						// Write operation
 						key := fmt.Sprintf("load_key_%d_%d", workerID, ops)
 						value := fmt.Sprintf("load_value_%d_%d", workerID, ops)
-						cache.Set(key, value)
+						_ = cache.Set(key, value)
 					} else {
 						// Read operation
 						key := fmt.Sprintf("load_key_%d_%d", workerID, rand.Intn(ops+1))

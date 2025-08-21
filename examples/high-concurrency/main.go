@@ -175,7 +175,7 @@ finished:
 func worker(cache *fastcache.Cache, config WorkerConfig, stats *OperationStats, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	rand.Seed(time.Now().UnixNano() + int64(config.ID))
+	rand.New(rand.NewSource(int64(config.ID)))
 
 	for i := 0; i < config.Operations; i++ {
 		if config.ThinkTime > 0 {
@@ -286,7 +286,7 @@ func runSustainedLoadTest() {
 func sustainedWorker(cache *fastcache.Cache, workerID int, stats *OperationStats, wg *sync.WaitGroup, stop <-chan struct{}) {
 	defer wg.Done()
 
-	rand.Seed(time.Now().UnixNano() + int64(workerID))
+	rand.New(rand.NewSource(int64(workerID)))
 
 	for {
 		select {

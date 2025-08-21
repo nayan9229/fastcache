@@ -10,6 +10,8 @@
     pkgs.nodePackages.nodemon
     pkgs.gnumake
     pkgs.gcc
+    pkgs.golangci-lint
+    pkgs.gotools
   ];
   # Sets environment variables in the workspace
   env = {};

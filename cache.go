@@ -13,11 +13,11 @@ import (
 
 // Entry represents a single cache entry
 type Entry struct {
-	key       string
-	value     interface{}
-	size      int64
-	expiry    int64 // Unix timestamp in nanoseconds
-	listNode  *list.Element
+	key      string
+	value    interface{}
+	size     int64
+	expiry   int64 // Unix timestamp in nanoseconds
+	listNode *list.Element
 }
 
 // isExpired checks if the entry has expired
@@ -94,7 +94,7 @@ func (c *Cache) getShard(key string) *Shard {
 // calculateSize estimates the memory size of a key-value pair
 func calculateSize(key string, value interface{}) int64 {
 	size := int64(len(key))
-	
+
 	switch v := value.(type) {
 	case string:
 		size += int64(len(v))
@@ -110,10 +110,10 @@ func calculateSize(key string, value interface{}) int64 {
 		// Rough estimate for other types
 		size += int64(unsafe.Sizeof(v))
 	}
-	
+
 	// Add overhead for Entry struct and list node
 	size += 64
-	
+
 	return size
 }
 
@@ -125,7 +125,7 @@ func (c *Cache) Set(key string, value interface{}, ttl ...time.Duration) error {
 
 	shard := c.getShard(key)
 	size := calculateSize(key, value)
-	
+
 	var expiry int64
 	if len(ttl) > 0 && ttl[0] > 0 {
 		expiry = time.Now().Add(ttl[0]).UnixNano()
@@ -134,7 +134,7 @@ func (c *Cache) Set(key string, value interface{}, ttl ...time.Duration) error {
 	}
 
 	shard.mu.Lock()
-	
+
 	// Check if key already exists
 	if existing, exists := shard.data[key]; exists {
 		// Update existing entry
@@ -142,17 +142,17 @@ func (c *Cache) Set(key string, value interface{}, ttl ...time.Duration) error {
 		existing.value = value
 		existing.size = size
 		existing.expiry = expiry
-		
+
 		// Move to front of LRU list
 		shard.lruList.MoveToFront(existing.listNode)
-		
+
 		// Update size counters
 		sizeDiff := size - oldSize
 		atomic.AddInt64(&c.totalSize, sizeDiff)
 		atomic.AddInt64(&shard.size, sizeDiff)
-		
+
 		shard.mu.Unlock()
-		
+
 		// Check for eviction after updating
 		if sizeDiff > 0 {
 			c.evictIfNeeded()
@@ -167,13 +167,13 @@ func (c *Cache) Set(key string, value interface{}, ttl ...time.Duration) error {
 		size:   size,
 		expiry: expiry,
 	}
-	
+
 	entry.listNode = shard.lruList.PushFront(entry)
 	shard.data[key] = entry
-	
+
 	atomic.AddInt64(&c.totalSize, size)
 	atomic.AddInt64(&shard.size, size)
-	
+
 	shard.mu.Unlock()
 
 	// Trigger eviction if needed (outside of lock to avoid deadlock)
@@ -188,7 +188,7 @@ func (c *Cache) Get(key string) (interface{}, bool) {
 	}
 
 	shard := c.getShard(key)
-	
+
 	shard.mu.RLock()
 	entry, exists := shard.data[key]
 	shard.mu.RUnlock()
@@ -224,7 +224,7 @@ func (c *Cache) Delete(key string) bool {
 	}
 
 	shard := c.getShard(key)
-	
+
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 
@@ -250,7 +250,7 @@ func (c *Cache) evictIfNeeded() {
 
 	// Calculate how much memory we need to free
 	excessMemory := currentSize - c.config.MaxMemoryBytes
-	
+
 	// Be more aggressive when significantly over limit
 	multiplier := 1
 	if excessMemory > c.config.MaxMemoryBytes/2 { // Over 150% of limit
@@ -281,7 +281,7 @@ func (c *Cache) evictIfNeeded() {
 		shard := c.shards[shardIndex]
 		evicted := c.evictFromShard(shard, itemsPerShard)
 		evictedTotal += evicted
-		
+
 		// Check if we've freed enough memory (but continue for a bit to avoid oscillation)
 		if atomic.LoadInt64(&c.totalSize) <= c.config.MaxMemoryBytes && evictedTotal >= itemsPerShard*2 {
 			break
@@ -308,14 +308,14 @@ func (c *Cache) evictFromShard(shard *Shard, count int) int {
 		atomic.AddInt64(&shard.size, -entry.size)
 		evicted++
 	}
-	
+
 	return evicted
 }
 
 // cleanupRoutine runs periodic cleanup of expired entries
 func (c *Cache) cleanupRoutine() {
 	defer c.wg.Done()
-	
+
 	ticker := time.NewTicker(c.config.CleanupInterval)
 	defer ticker.Stop()
 
@@ -332,10 +332,10 @@ func (c *Cache) cleanupRoutine() {
 // cleanupExpired removes expired entries from all shards
 func (c *Cache) cleanupExpired() {
 	now := time.Now().UnixNano()
-	
+
 	for _, shard := range c.shards {
 		shard.mu.Lock()
-		
+
 		// Collect expired keys
 		var expiredKeys []string
 		for key, entry := range shard.data {
@@ -343,7 +343,7 @@ func (c *Cache) cleanupExpired() {
 				expiredKeys = append(expiredKeys, key)
 			}
 		}
-		
+
 		// Remove expired entries
 		for _, key := range expiredKeys {
 			entry := shard.data[key]
@@ -352,7 +352,7 @@ func (c *Cache) cleanupExpired() {
 			atomic.AddInt64(&c.totalSize, -entry.size)
 			atomic.AddInt64(&shard.size, -entry.size)
 		}
-		
+
 		shard.mu.Unlock()
 	}
 }
@@ -377,6 +377,6 @@ func (c *Cache) Close() error {
 
 	close(c.stopCh)
 	c.wg.Wait()
-	
+
 	return nil
 }

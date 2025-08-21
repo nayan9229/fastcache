@@ -1,0 +1,27 @@
+{
+  "cache": {
+    "max_memory_mb": 256,
+    "shard_count": 512,
+    "default_ttl_minutes": 15,
+    "cleanup_interval_seconds": 120
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "metrics_port": 8090,
+    "read_timeout_seconds": 30,
+    "write_timeout_seconds": 30,
+    "max_header_bytes": 1048576
+  },
+  "monitoring": {
+    "enabled": true,
+    "log_interval_seconds": 60,
+    "metrics_enabled": true,
+    "health_check_enabled": true
+  },
+  "logging": {
+    "level": "info",
+    "format": "json",
+    "enable_caller": false
+  }
+}

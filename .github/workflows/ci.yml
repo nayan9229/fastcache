@@ -168,6 +168,6 @@ jobs:
       run: |
         go test -bench=BenchmarkComprehensive -benchmem -run=^$ ./... > benchmark.txt
         echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
-        echo '```
+        echo '```' >> $GITHUB_STEP_SUMMARY
         cat benchmark.txt >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY

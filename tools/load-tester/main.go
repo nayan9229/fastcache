@@ -8,7 +8,6 @@ import (
 	"math/rand"
 	"os"
 	"runtime"
-	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,18 +18,18 @@ import (
 
 // LoadTestConfig defines the load test parameters
 type LoadTestConfig struct {
-	Duration       time.Duration `json:"duration"`
-	Workers        int           `json:"workers"`
-	TargetQPS      int           `json:"target_qps"`
-	WriteRatio     float64       `json:"write_ratio"`
-	DeleteRatio    float64       `json:"delete_ratio"`
-	KeyRange       int           `json:"key_range"`
-	ValueSize      int           `json:"value_size"`
-	WarmupDuration time.Duration `json:"warmup_duration"`
-	CooldownPeriod time.Duration `json:"cooldown_period"`
-	MemoryLimit    int64         `json:"memory_limit_mb"`
-	ShardCount     int           `json:"shard_count"`
-	ReportInterval time.Duration `json:"report_interval"`
+	Duration        time.Duration `json:"duration"`
+	Workers         int           `json:"workers"`
+	TargetQPS       int           `json:"target_qps"`
+	WriteRatio      float64       `json:"write_ratio"`
+	DeleteRatio     float64       `json:"delete_ratio"`
+	KeyRange        int           `json:"key_range"`
+	ValueSize       int           `json:"value_size"`
+	WarmupDuration  time.Duration `json:"warmup_duration"`
+	CooldownPeriod  time.Duration `json:"cooldown_period"`
+	MemoryLimit     int64         `json:"memory_limit_mb"`
+	ShardCount      int           `json:"shard_count"`
+	ReportInterval  time.Duration `json:"report_interval"`
 }
 
 // LoadTestResults contains the test results
@@ -48,15 +47,15 @@ type LoadTestResults struct {
 	Misses          int64          `json:"misses"`
 	HitRatio        float64        `json:"hit_ratio"`
 	Errors          int64          `json:"errors"`
-
+	
 	// Latency statistics (in nanoseconds)
-	LatencyStats LatencyStats `json:"latency_stats"`
-
+	LatencyStats    LatencyStats   `json:"latency_stats"`
+	
 	// Cache statistics at end
 	FinalCacheStats *fastcache.Stats `json:"final_cache_stats"`
-
+	
 	// System metrics
-	SystemMetrics SystemMetrics `json:"system_metrics"`
+	SystemMetrics   SystemMetrics  `json:"system_metrics"`
 }
 
 // LatencyStats contains latency measurements
@@ -72,21 +71,21 @@ type LatencyStats struct {
 
 // SystemMetrics contains system performance data
 type SystemMetrics struct {
-	StartMemory   runtime.MemStats `json:"start_memory"`
-	EndMemory     runtime.MemStats `json:"end_memory"`
-	PeakMemory    uint64           `json:"peak_memory"`
-	GCRuns        uint32           `json:"gc_runs"`
-	MaxGoroutines int              `json:"max_goroutines"`
+	StartMemory runtime.MemStats `json:"start_memory"`
+	EndMemory   runtime.MemStats `json:"end_memory"`
+	PeakMemory  uint64           `json:"peak_memory"`
+	GCRuns      uint32           `json:"gc_runs"`
+	MaxGoroutines int            `json:"max_goroutines"`
 }
 
 // WorkerStats tracks per-worker statistics
 type WorkerStats struct {
-	Sets      int64
-	Gets      int64
-	Deletes   int64
-	Hits      int64
-	Misses    int64
-	Errors    int64
+	Sets    int64
+	Gets    int64
+	Deletes int64
+	Hits    int64
+	Misses  int64
+	Errors  int64
 	Latencies []int64 // Nanoseconds
 }
 
@@ -320,15 +319,15 @@ func worker(cache *fastcache.Cache, config LoadTestConfig, stats *WorkerStats, t
 
 func performOperation(cache *fastcache.Cache, config LoadTestConfig, stats *WorkerStats) {
 	start := time.Now()
-
+	
 	r := rand.Float64()
-
+	
 	if r < config.DeleteRatio {
 		// Delete operation
 		key := fmt.Sprintf("key_%d", rand.Intn(config.KeyRange))
 		cache.Delete(key)
 		atomic.AddInt64(&stats.Deletes, 1)
-
+		
 	} else if r < config.WriteRatio+config.DeleteRatio {
 		// Write operation
 		key := fmt.Sprintf("key_%d", rand.Intn(config.KeyRange))
@@ -339,7 +338,7 @@ func performOperation(cache *fastcache.Cache, config LoadTestConfig, stats *Work
 		} else {
 			atomic.AddInt64(&stats.Sets, 1)
 		}
-
+		
 	} else {
 		// Read operation
 		key := fmt.Sprintf("key_%d", rand.Intn(config.KeyRange))
@@ -350,7 +349,7 @@ func performOperation(cache *fastcache.Cache, config LoadTestConfig, stats *Work
 		}
 		atomic.AddInt64(&stats.Gets, 1)
 	}
-
+	
 	// Record latency
 	latency := time.Since(start).Nanoseconds()
 	stats.Latencies = append(stats.Latencies, latency)
@@ -380,15 +379,15 @@ func reportProgress(cache *fastcache.Cache, interval time.Duration, stopCh <-cha
 			stats := cache.GetStats()
 			currentOps := stats.HitCount + stats.MissCount
 			currentTime := time.Now()
-
+			
 			// Calculate QPS since last report
 			deltaOps := currentOps - lastOps
 			deltaTime := currentTime.Sub(lastTime).Seconds()
 			currentQPS := float64(deltaOps) / deltaTime
-
+			
 			fmt.Printf("Progress: %d ops total, %.0f QPS, %.2f%% hit ratio, %s memory\n",
 				currentOps, currentQPS, stats.HitRatio*100, stats.MemoryUsage)
-
+			
 			lastOps = currentOps
 			lastTime = currentTime
 		}
@@ -453,9 +452,14 @@ func calculateLatencyStats(latencies []int64) LatencyStats {
 	}
 
 	// Sort latencies for percentile calculation
-	sort.Slice(latencies, func(i, j int) bool {
-		return latencies[i] < latencies[j]
-	})
+	// Simple sort for int64 slice
+	for i := 0; i < len(latencies)-1; i++ {
+		for j := i + 1; j < len(latencies); j++ {
+			if latencies[i] > latencies[j] {
+				latencies[i], latencies[j] = latencies[j], latencies[i]
+			}
+		}
+	}
 
 	var sum int64
 	for _, lat := range latencies {
@@ -481,26 +485,26 @@ func printResults(results *LoadTestResults) {
 	fmt.Printf("Duration: %v\n", results.Duration)
 	fmt.Printf("Total Operations: %d\n", results.TotalOperations)
 	fmt.Printf("Actual QPS: %.0f\n", results.ActualQPS)
-	fmt.Printf("Target QPS: %d (%.1f%% achieved)\n",
-		results.Config.TargetQPS,
+	fmt.Printf("Target QPS: %d (%.1f%% achieved)\n", 
+		results.Config.TargetQPS, 
 		results.ActualQPS/float64(results.Config.TargetQPS)*100)
-
+	
 	fmt.Println("\nOperation Breakdown:")
 	fmt.Printf("  SET: %d (%.0f/sec)\n", results.Sets, float64(results.Sets)/results.Duration.Seconds())
 	fmt.Printf("  GET: %d (%.0f/sec)\n", results.Gets, float64(results.Gets)/results.Duration.Seconds())
 	fmt.Printf("  DELETE: %d (%.0f/sec)\n", results.Deletes, float64(results.Deletes)/results.Duration.Seconds())
 	fmt.Printf("  Errors: %d\n", results.Errors)
-
+	
 	fmt.Println("\nCache Performance:")
 	fmt.Printf("  Hits: %d\n", results.Hits)
 	fmt.Printf("  Misses: %d\n", results.Misses)
 	fmt.Printf("  Hit Ratio: %.2f%%\n", results.HitRatio*100)
-
+	
 	if results.FinalCacheStats != nil {
 		fmt.Printf("  Final Entries: %d\n", results.FinalCacheStats.TotalEntries)
 		fmt.Printf("  Memory Usage: %s\n", results.FinalCacheStats.MemoryUsage)
 	}
-
+	
 	fmt.Println("\nLatency Statistics:")
 	fmt.Printf("  Min: %v\n", results.LatencyStats.Min)
 	fmt.Printf("  Mean: %v\n", results.LatencyStats.Mean)
@@ -508,7 +512,7 @@ func printResults(results *LoadTestResults) {
 	fmt.Printf("  P95: %v\n", results.LatencyStats.P95)
 	fmt.Printf("  P99: %v\n", results.LatencyStats.P99)
 	fmt.Printf("  Max: %v\n", results.LatencyStats.Max)
-
+	
 	fmt.Println("\nSystem Metrics:")
 	fmt.Printf("  Peak Memory: %.2f MB\n", float64(results.SystemMetrics.PeakMemory)/1024/1024)
 	fmt.Printf("  GC Runs: %d\n", results.SystemMetrics.GCRuns)

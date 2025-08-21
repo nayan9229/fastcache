@@ -13,11 +13,11 @@ import (
 
 // Entry represents a single cache entry
 type Entry struct {
-	key      string
-	value    interface{}
-	size     int64
-	expiry   int64 // Unix timestamp in nanoseconds
-	listNode *list.Element
+	key       string
+	value     interface{}
+	size      int64
+	expiry    int64 // Unix timestamp in nanoseconds
+	listNode  *list.Element
 }
 
 // isExpired checks if the entry has expired
@@ -94,7 +94,7 @@ func (c *Cache) getShard(key string) *Shard {
 // calculateSize estimates the memory size of a key-value pair
 func calculateSize(key string, value interface{}) int64 {
 	size := int64(len(key))
-
+	
 	switch v := value.(type) {
 	case string:
 		size += int64(len(v))
@@ -110,10 +110,10 @@ func calculateSize(key string, value interface{}) int64 {
 		// Rough estimate for other types
 		size += int64(unsafe.Sizeof(v))
 	}
-
+	
 	// Add overhead for Entry struct and list node
 	size += 64
-
+	
 	return size
 }
 
@@ -125,7 +125,7 @@ func (c *Cache) Set(key string, value interface{}, ttl ...time.Duration) error {
 
 	shard := c.getShard(key)
 	size := calculateSize(key, value)
-
+	
 	var expiry int64
 	if len(ttl) > 0 && ttl[0] > 0 {
 		expiry = time.Now().Add(ttl[0]).UnixNano()
@@ -134,22 +134,29 @@ func (c *Cache) Set(key string, value interface{}, ttl ...time.Duration) error {
 	}
 
 	shard.mu.Lock()
-	defer shard.mu.Unlock()
-
+	
 	// Check if key already exists
 	if existing, exists := shard.data[key]; exists {
 		// Update existing entry
-		atomic.AddInt64(&c.totalSize, size-existing.size)
-		atomic.AddInt64(&shard.size, size-existing.size)
-
+		oldSize := existing.size
 		existing.value = value
 		existing.size = size
 		existing.expiry = expiry
-
+		
 		// Move to front of LRU list
 		shard.lruList.MoveToFront(existing.listNode)
-
-		c.evictIfNeeded()
+		
+		// Update size counters
+		sizeDiff := size - oldSize
+		atomic.AddInt64(&c.totalSize, sizeDiff)
+		atomic.AddInt64(&shard.size, sizeDiff)
+		
+		shard.mu.Unlock()
+		
+		// Check for eviction after updating
+		if sizeDiff > 0 {
+			c.evictIfNeeded()
+		}
 		return nil
 	}
 
@@ -160,13 +167,16 @@ func (c *Cache) Set(key string, value interface{}, ttl ...time.Duration) error {
 		size:   size,
 		expiry: expiry,
 	}
-
+	
 	entry.listNode = shard.lruList.PushFront(entry)
 	shard.data[key] = entry
-
+	
 	atomic.AddInt64(&c.totalSize, size)
 	atomic.AddInt64(&shard.size, size)
+	
+	shard.mu.Unlock()
 
+	// Trigger eviction if needed (outside of lock to avoid deadlock)
 	c.evictIfNeeded()
 	return nil
 }
@@ -178,7 +188,7 @@ func (c *Cache) Get(key string) (interface{}, bool) {
 	}
 
 	shard := c.getShard(key)
-
+	
 	shard.mu.RLock()
 	entry, exists := shard.data[key]
 	shard.mu.RUnlock()
@@ -214,7 +224,7 @@ func (c *Cache) Delete(key string) bool {
 	}
 
 	shard := c.getShard(key)
-
+	
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 
@@ -233,28 +243,59 @@ func (c *Cache) Delete(key string) bool {
 
 // evictIfNeeded removes old entries if memory limit is exceeded
 func (c *Cache) evictIfNeeded() {
-	if atomic.LoadInt64(&c.totalSize) <= c.config.MaxMemoryBytes {
+	currentSize := atomic.LoadInt64(&c.totalSize)
+	if currentSize <= c.config.MaxMemoryBytes {
 		return
 	}
 
-	// Evict from multiple shards to distribute the load
-	shardsToEvict := c.config.ShardCount / 4
-	if shardsToEvict < 1 {
-		shardsToEvict = 1
+	// Calculate how much memory we need to free
+	excessMemory := currentSize - c.config.MaxMemoryBytes
+	
+	// Be more aggressive when significantly over limit
+	multiplier := 1
+	if excessMemory > c.config.MaxMemoryBytes/2 { // Over 150% of limit
+		multiplier = 4
+	} else if excessMemory > c.config.MaxMemoryBytes/4 { // Over 125% of limit
+		multiplier = 2
 	}
 
-	for i := 0; i < shardsToEvict; i++ {
-		shard := c.shards[i]
-		c.evictFromShard(shard, 1)
+	// Evict from most shards when memory pressure is high
+	shardsToEvict := (c.config.ShardCount * 3) / 4 // 75% of shards
+	if shardsToEvict < 4 {
+		shardsToEvict = 4
+	}
+	if shardsToEvict > c.config.ShardCount {
+		shardsToEvict = c.config.ShardCount
+	}
+
+	itemsPerShard := multiplier
+	if excessMemory > c.config.MaxMemoryBytes {
+		// If we're way over limit, evict more aggressively
+		itemsPerShard = multiplier * 3
+	}
+
+	// Evict from different shards to distribute the load
+	evictedTotal := 0
+	for i := 0; i < shardsToEvict && evictedTotal < itemsPerShard*shardsToEvict; i++ {
+		shardIndex := i % c.config.ShardCount
+		shard := c.shards[shardIndex]
+		evicted := c.evictFromShard(shard, itemsPerShard)
+		evictedTotal += evicted
+		
+		// Check if we've freed enough memory (but continue for a bit to avoid oscillation)
+		if atomic.LoadInt64(&c.totalSize) <= c.config.MaxMemoryBytes && evictedTotal >= itemsPerShard*2 {
+			break
+		}
 	}
 }
 
 // evictFromShard removes the oldest entries from a shard
-func (c *Cache) evictFromShard(shard *Shard, count int) {
+func (c *Cache) evictFromShard(shard *Shard, count int) int {
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
 
-	for i := 0; i < count && shard.lruList.Len() > 0; i++ {
+	evicted := 0
+	for evicted < count && shard.lruList.Len() > 0 {
 		oldest := shard.lruList.Back()
 		if oldest == nil {
 			break
@@ -265,13 +306,16 @@ func (c *Cache) evictFromShard(shard *Shard, count int) {
 		shard.lruList.Remove(oldest)
 		atomic.AddInt64(&c.totalSize, -entry.size)
 		atomic.AddInt64(&shard.size, -entry.size)
+		evicted++
 	}
+	
+	return evicted
 }
 
 // cleanupRoutine runs periodic cleanup of expired entries
 func (c *Cache) cleanupRoutine() {
 	defer c.wg.Done()
-
+	
 	ticker := time.NewTicker(c.config.CleanupInterval)
 	defer ticker.Stop()
 
@@ -288,10 +332,10 @@ func (c *Cache) cleanupRoutine() {
 // cleanupExpired removes expired entries from all shards
 func (c *Cache) cleanupExpired() {
 	now := time.Now().UnixNano()
-
+	
 	for _, shard := range c.shards {
 		shard.mu.Lock()
-
+		
 		// Collect expired keys
 		var expiredKeys []string
 		for key, entry := range shard.data {
@@ -299,7 +343,7 @@ func (c *Cache) cleanupExpired() {
 				expiredKeys = append(expiredKeys, key)
 			}
 		}
-
+		
 		// Remove expired entries
 		for _, key := range expiredKeys {
 			entry := shard.data[key]
@@ -308,7 +352,7 @@ func (c *Cache) cleanupExpired() {
 			atomic.AddInt64(&c.totalSize, -entry.size)
 			atomic.AddInt64(&shard.size, -entry.size)
 		}
-
+		
 		shard.mu.Unlock()
 	}
 }
@@ -333,6 +377,6 @@ func (c *Cache) Close() error {
 
 	close(c.stopCh)
 	c.wg.Wait()
-
+	
 	return nil
 }

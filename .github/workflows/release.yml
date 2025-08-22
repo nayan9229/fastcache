@@ -203,11 +203,3 @@ jobs:
         
         # Create the release notes using cat with HERE document to avoid shell escaping issues
         cat > RELEASE_NOTES.md << 'RELEASE_EOF'
-# 🚀 FastCache ${TAG} Release
-
-_Released on ${RELEASE_DATE}_
-
-## 🚀 Benchmark Results
-
-Performance benchmarks for this release:
-
